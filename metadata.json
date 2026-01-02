@@ -1,0 +1,7 @@
+{
+  "name": "TSAI:  The smartest ai",
+  "description": "TSAI",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
