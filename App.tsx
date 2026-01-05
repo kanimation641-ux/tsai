@@ -3,31 +3,24 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Zap, 
   Globe, 
-  Compass, 
-  History as HistoryIcon, 
-  Star,
-  ChevronLeft,
-  ChevronRight,
   Settings,
   SendHorizontal,
-  ArrowRight,
-  GraduationCap,
-  Timer,
-  Mic,
-  Volume2,
-  X,
+  ChevronLeft,
   Binary,
-  Ghost,
-  CandyCane,
   Gift,
-  PartyPopper,
-  Sparkles
+  Loader2,
+  Mic,
+  MicOff,
+  Radio,
+  Keyboard,
+  GraduationCap,
+  Volume2
 } from 'lucide-react';
 import FestiveParticles from './components/FestiveParticles';
 import ResponseView from './components/ResponseView';
-import { getGeminiResponse, getSpellingVoice } from './services/geminiService';
+import { getGeminiResponse } from './services/geminiService';
 import { ToolType, HistoryItem, ViewState } from './types';
-import { GoogleGenAI, Modality } from '@google/genai';
+import { GoogleGenAI, Modality, LiveServerMessage } from '@google/genai';
 
 const FONTS = [
   { name: 'Quicksand', family: "'Quicksand', sans-serif", label: 'Modern' },
@@ -39,8 +32,15 @@ const FONTS = [
   { name: 'Orbitron', family: "'Orbitron', sans-serif", label: 'Singularity' }
 ];
 
-const GRADES = Array.from({ length: 12 }, (_, i) => `Tier ${i + 1}`);
+const GRADES = [
+  'Elementary (K-5)',
+  'Middle School (6-8)',
+  'High School (9-12)',
+  'College/University',
+  'Post-Graduate/Professional'
+];
 
+// Audio Utils for Live API
 function decode(base64: string) {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -49,13 +49,22 @@ function decode(base64: string) {
   return bytes;
 }
 
+function encode(bytes: Uint8Array) {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
 async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: number, numChannels: number): Promise<AudioBuffer> {
   const dataInt16 = new Int16Array(data.buffer);
   const frameCount = dataInt16.length / numChannels;
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
   for (let channel = 0; channel < numChannels; channel++) {
     const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    for (let i = 0; i < frameCount; i++) {
+      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
   }
   return buffer;
 }
@@ -68,74 +77,177 @@ const App: React.FC = () => {
   const [response, setResponse] = useState('');
   const [sources, setSources] = useState<{ title: string; uri: string }[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
   const [currentFont, setCurrentFont] = useState(FONTS[0].family);
   const [showFontSettings, setShowFontSettings] = useState(false);
-  const [grade, setGrade] = useState('Tier 6');
-  const [futureLevel, setFutureLevel] = useState(20);
+  const [grade, setGrade] = useState(GRADES[1]); // Default Middle School
 
-  const [targetWord, setTargetWord] = useState('');
-  const [spellingStreak, setSpellingStreak] = useState(0);
-  const [isVoiceActive, setIsVoiceActive] = useState(false);
+  // Live Session States
+  const [isLive, setIsLive] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState<{user: string, master: string}>({user: '', master: ''});
+  const sessionRef = useRef<any>(null);
+  const audioContextsRef = useRef<{input: AudioContext, output: AudioContext} | null>(null);
+  const nextStartTimeRef = useRef(0);
+  const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
 
   useEffect(() => {
     const saved = localStorage.getItem('tsai-paradox-history');
     if (saved) setHistory(JSON.parse(saved));
+    const savedGrade = localStorage.getItem('tsai-user-grade');
+    if (savedGrade) setGrade(savedGrade);
+    return () => stopLiveSession();
   }, []);
 
-  const handleSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!input.trim() || loading) return;
+  const handleGradeChange = (newGrade: string) => {
+    setGrade(newGrade);
+    localStorage.setItem('tsai-user-grade', newGrade);
+  };
 
-    setLoading(true);
-    if (activeTab === ToolType.SPELLING_BEE && targetWord) {
-      const correct = input.trim().toLowerCase() === targetWord.toLowerCase();
-      if (correct) {
-        setSpellingStreak(s => s + 1);
-        setResponse(`✨ SYNCED: "${targetWord.toUpperCase()}" is the word! Paradox stability increased.`);
-        setTargetWord('');
-        setInput('');
-        setTimeout(() => startVoiceChallenge(), 1500);
-      } else {
-        setSpellingStreak(0);
-        setResponse(`👻 GLITCH: Mistake detected. The Void consumes "${input.toUpperCase()}". Target was "${targetWord.toUpperCase()}".`);
-        setTargetWord('');
-      }
-      setLoading(false);
-      return;
+  const stopLiveSession = () => {
+    if (sessionRef.current) {
+      sessionRef.current.close?.();
+      sessionRef.current = null;
     }
+    activeSourcesRef.current.forEach(s => {
+      try { s.stop(); } catch(e) {}
+    });
+    activeSourcesRef.current.clear();
+    setIsLive(false);
+    setLoading(false);
+    setLiveTranscript({ user: '', master: '' });
+  };
 
+  const startLiveSession = async () => {
+    setLoading(true);
     try {
-      const result = await getGeminiResponse(input, activeTab, grade);
-      setResponse(result.text);
-      if (result.sources) setSources(result.sources);
-      const newItem = { id: Date.now().toString(), type: activeTab, query: input, response: result.text, timestamp: Date.now() };
-      const updated = [newItem, ...history].slice(0, 10);
-      setHistory(updated);
-      localStorage.setItem('tsai-paradox-history', JSON.stringify(updated));
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+      const outputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      audioContextsRef.current = { input: inputCtx, output: outputCtx };
+
+      const sessionPromise = ai.live.connect({
+        model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+        config: {
+          responseModalities: [Modality.AUDIO],
+          thinkingConfig: { thinkingBudget: 0 }, // Ensure maximum speed for Spelling Bee
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Charon' } } },
+          systemInstruction: `STRICT ACADEMIC PROTOCOL: Instant Voice Spelling Master.
+          - TARGET GRADE: ${grade}.
+          - MISSION: High-Speed Progressive Voice Spelling Bee.
+          - CRITICAL: NO TEXT OUTPUT. DO NOT type the word or spelling in transcriptions. AUDITORY PRACTICE ONLY.
+          - SPEED: Deliver words INSTANTANEOUSLY. Minimal latency is priority. 
+          - PROGRESSION:
+            1. Start with an EASY word (3-4 letters).
+            2. Every correct response = IMMEDIATELY give a HARDER word.
+            3. Increase complexity rapidly with each success.
+          - RULES:
+            - User must speak the letters clearly.
+            - If correct: Say only "Correct. Next word: [Word]" or just "[Word]".
+            - If wrong: Say "Incorrect. The word was [word]. New word: [Word]."
+          - TONE: Professional, ultra-efficient, academic. NO JOKES. NO CONVERSATION.`,
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
+        },
+        callbacks: {
+          onopen: () => {
+            setIsLive(true);
+            setLoading(false);
+            sessionPromise.then(s => {
+              s.send({ parts: [{ text: `System online. Level: ${grade}. Start Spelling Bee IMMEDIATELY with an EASY word.` }] });
+            });
+
+            const source = inputCtx.createMediaStreamSource(stream);
+            const processor = inputCtx.createScriptProcessor(4096, 1, 1);
+            processor.onaudioprocess = (e) => {
+              if (!sessionRef.current) return;
+              const inputData = e.inputBuffer.getChannelData(0);
+              const int16 = new Int16Array(inputData.length);
+              for (let i = 0; i < inputData.length; i++) int16[i] = inputData[i] * 32768;
+              const pcmBlob = {
+                data: encode(new Uint8Array(int16.buffer)),
+                mimeType: 'audio/pcm;rate=16000',
+              };
+              sessionPromise.then(s => s.sendRealtimeInput({ media: pcmBlob }));
+            };
+            source.connect(processor);
+            processor.connect(inputCtx.destination);
+          },
+          onmessage: async (msg: LiveServerMessage) => {
+            if (msg.serverContent?.outputTranscription) {
+              setLiveTranscript(prev => ({ ...prev, master: "[Audio Signal Only]" }));
+            }
+            if (msg.serverContent?.inputTranscription) {
+              const text = msg.serverContent.inputTranscription.text || "";
+              setLiveTranscript(prev => ({ ...prev, user: text }));
+            }
+            if (msg.serverContent?.turnComplete) {
+              setTimeout(() => setLiveTranscript({ user: '', master: '' }), 1500);
+            }
+
+            const audioBase64 = msg.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+            if (audioBase64 && audioContextsRef.current) {
+              const { output } = audioContextsRef.current;
+              nextStartTimeRef.current = Math.max(nextStartTimeRef.current, output.currentTime);
+              const buffer = await decodeAudioData(decode(audioBase64), output, 24000, 1);
+              const source = output.createBufferSource();
+              source.buffer = buffer;
+              source.connect(output.destination);
+              source.start(nextStartTimeRef.current);
+              nextStartTimeRef.current += buffer.duration;
+              activeSourcesRef.current.add(source);
+              source.onended = () => activeSourcesRef.current.delete(source);
+            }
+
+            if (msg.serverContent?.interrupted) {
+              activeSourcesRef.current.forEach(s => { try { s.stop(); } catch(e) {} });
+              activeSourcesRef.current.clear();
+              nextStartTimeRef.current = 0;
+            }
+          },
+          onclose: () => setIsLive(false),
+          onerror: (e) => {
+            console.error("Live API Error:", e);
+            setIsLive(false);
+          },
+        }
+      });
+      sessionRef.current = await sessionPromise;
     } catch (err) {
-      setResponse("The Paradox is collapsing. Refresh to stabilize. 🌀");
-    } finally {
+      console.error("Live Session Initiation Error:", err);
+      setIsLive(false);
       setLoading(false);
     }
   };
 
-  const startVoiceChallenge = async () => {
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!input.trim() || loading) return;
+    
     setLoading(true);
+    setResponse('');
+    setSources([]);
+
     try {
-      const { word, base64Audio } = await getSpellingVoice(grade, 1);
-      setTargetWord(word);
-      if (base64Audio) {
-        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-        const buffer = await decodeAudioData(decode(base64Audio), ctx, 24000, 1);
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(ctx.destination);
-        source.start();
-        setResponse("🎧 Listening to the Midnight Transmission... Spell the word.");
-      }
-    } catch (err) { setResponse("Audio stream corrupted by ghosts. 🦇"); }
-    finally { setLoading(false); }
+      const result = await getGeminiResponse(input, activeTab, grade);
+      setResponse(result.text);
+      setSources(result.sources || []);
+      
+      const newItem = { 
+        id: Date.now().toString(), 
+        type: activeTab, 
+        query: input, 
+        response: result.text, 
+        timestamp: Date.now() 
+      };
+      const updated = [newItem, ...history].slice(0, 10);
+      setHistory(updated);
+      localStorage.setItem('tsai-paradox-history', JSON.stringify(updated));
+    } catch (err) {
+      setResponse("System Error: Academic stream interrupted. Please check connectivity.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getColorClasses = (type: ToolType) => {
@@ -148,31 +260,55 @@ const App: React.FC = () => {
     }
   };
 
+  const openTool = (type: ToolType) => {
+    if (activeTab === ToolType.SPELLING_BEE) stopLiveSession();
+    setActiveTab(type);
+    setView(ViewState.TOOL);
+    setResponse('');
+    setSources([]);
+    setInput('');
+    if (type === ToolType.SPELLING_BEE) {
+      startLiveSession();
+    }
+  };
+
   return (
-    <div className="min-h-screen relative flex flex-col" style={{ fontFamily: currentFont }}>
+    <div className="min-h-screen relative flex flex-col overflow-hidden" style={{ fontFamily: currentFont }}>
       <FestiveParticles density={50} />
       
       <header className="z-10 p-8 pt-16 flex flex-col items-center">
-        <h1 className="text-7xl md:text-9xl paradox-title uppercase tracking-tighter">TSAI</h1>
+        <h1 className="text-7xl md:text-9xl paradox-title uppercase tracking-tighter cursor-default select-none">TSAI</h1>
         <div className="flex gap-4 mt-2">
            <span className="christmas-font text-red-500 text-xl">Merry</span>
            <span className="halloween-font text-orange-500 text-xl">Spooky</span>
            <span className="newyear-font text-yellow-500 text-sm flex items-center">2026</span>
         </div>
+
+        {/* Grade Selector */}
+        <div className="mt-8 flex items-center gap-3 bg-white/5 border border-white/10 px-4 py-2 rounded-2xl backdrop-blur-md">
+          <GraduationCap className="w-5 h-5 text-amber-500" />
+          <select 
+            value={grade} 
+            onChange={(e) => handleGradeChange(e.target.value)}
+            className="bg-transparent text-slate-300 text-sm font-bold outline-none cursor-pointer focus:text-white transition-colors"
+          >
+            {GRADES.map(g => <option key={g} value={g} className="bg-slate-900">{g}</option>)}
+          </select>
+        </div>
       </header>
 
-      <main className="flex-1 z-10 w-full max-w-4xl mx-auto px-6">
+      <main className="flex-1 z-10 w-full max-w-4xl mx-auto px-6 pb-32">
         {view === ViewState.HOME ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in zoom-in duration-500">
             {[
-              { type: ToolType.MATH, title: "2+0+2+6= 2026", icon: Binary, desc: "Spooky Logic Core" },
-              { type: ToolType.KNOWLEDGE, title: "General Knowledge", icon: Globe, desc: "Christmas Data Archive" },
-              { type: ToolType.SPELLING_BEE, title: "Lexicon Bee", icon: Zap, desc: "Midnight Decryption" }
+              { type: ToolType.MATH, title: "Math Solver", icon: Binary, desc: "Direct Solutions" },
+              { type: ToolType.KNOWLEDGE, title: "Knowledge AI", icon: Globe, desc: "Fast Facts" },
+              { type: ToolType.SPELLING_BEE, title: "Spelling Practice", icon: Radio, desc: "Voice-Only Practice" }
             ].map((t) => (
               <button 
                 key={t.type} 
-                onClick={() => { setActiveTab(t.type); setView(ViewState.TOOL); setResponse(''); setInput(''); }}
-                className="bg-white/5 border border-white/10 p-8 rounded-3xl hover:bg-white/10 transition-all text-left group"
+                onClick={() => openTool(t.type)}
+                className="bg-white/5 border border-white/10 p-8 rounded-3xl hover:bg-white/10 transition-all text-left group backdrop-blur-md"
               >
                 <t.icon className={`w-12 h-12 mb-4 ${getColorClasses(t.type).text}`} />
                 <h2 className="text-2xl font-bold text-white mb-2">{t.title}</h2>
@@ -183,72 +319,103 @@ const App: React.FC = () => {
         ) : (
           <div className="flex flex-col gap-6 animate-in slide-in-from-right-4 duration-500">
             <div className="flex items-center justify-between">
-              <button onClick={() => setView(ViewState.HOME)} className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center gap-2 hover:bg-white/10 transition-all">
+              <button onClick={() => { stopLiveSession(); setView(ViewState.HOME); }} className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center gap-2 hover:bg-white/10 transition-all">
                 <ChevronLeft className="w-4 h-4" /> Home
               </button>
-              <div className={`px-4 py-2 rounded-xl border ${getColorClasses(activeTab).bg} ${getColorClasses(activeTab).border} ${getColorClasses(activeTab).text} font-bold`}>
-                {activeTab} MODE
+              <div className="flex gap-2">
+                <div className={`px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-slate-400 text-xs font-black uppercase flex items-center gap-2`}>
+                   {grade}
+                </div>
+                <div className={`px-4 py-2 rounded-xl border ${getColorClasses(activeTab).bg} ${getColorClasses(activeTab).border} ${getColorClasses(activeTab).text} font-bold`}>
+                  {activeTab} MODE
+                </div>
               </div>
             </div>
 
-            {activeTab === ToolType.SPELLING_BEE && (
-              <button onClick={startVoiceChallenge} className="bg-yellow-500/10 p-6 rounded-2xl border border-yellow-500/20 flex items-center justify-between hover:bg-yellow-500/20 transition-all group">
-                <div className="flex items-center gap-4">
-                  <Mic className="w-8 h-8 text-yellow-500 group-hover:scale-110 transition-transform" />
-                  <div>
-                    <p className="text-yellow-400 font-black uppercase text-xs">Astra-9 Link</p>
-                    <p className="text-white text-lg font-bold">Start Midnight Spelling Challenge</p>
+            {activeTab === ToolType.SPELLING_BEE ? (
+              <div className="flex flex-col gap-6">
+                <div className={`p-12 rounded-3xl border border-white/10 bg-slate-900/60 backdrop-blur-3xl shadow-2xl relative overflow-hidden flex flex-col items-center gap-8 text-center`}>
+                  {isLive && (
+                    <div className="absolute top-4 right-6 flex items-center gap-2">
+                       <span className="text-[10px] font-black text-red-500 uppercase tracking-widest animate-pulse">Live Practice</span>
+                       <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_10px_#ef4444]" />
+                    </div>
+                  )}
+                  
+                  <div className="p-8 rounded-full bg-yellow-500/10 border-2 border-yellow-500/20 animate-pulse">
+                    <Volume2 className="w-16 h-16 text-yellow-500" />
+                  </div>
+
+                  <div className="flex flex-col gap-4">
+                    <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Listen & Speak</h3>
+                    <p className="text-slate-400 max-w-md mx-auto leading-relaxed">
+                      {loading ? 'Connecting to Master...' : 'Listen carefully. The AI will speak the word. Reply by speaking the letters to practice.'}
+                    </p>
+                  </div>
+
+                  {liveTranscript.user && (
+                    <div className="flex flex-col gap-2 items-center animate-in zoom-in duration-300 w-full">
+                      <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Auditory Input Captured</span>
+                      <p className="text-2xl text-blue-300 font-black bg-blue-500/10 px-8 py-4 rounded-3xl border border-blue-500/20 tracking-[0.2em] uppercase">
+                        {liveTranscript.user}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="mt-4 flex items-center gap-3 text-red-500 text-sm font-black uppercase tracking-widest bg-red-500/5 px-6 py-3 rounded-2xl border border-red-500/10">
+                    <Mic className="w-4 h-4 animate-bounce" /> Microphone is Active
                   </div>
                 </div>
-                {spellingStreak > 0 && <div className="text-yellow-500 font-black">Streak: {spellingStreak}</div>}
-              </button>
+              </div>
+            ) : (
+              <>
+                <div className="relative group">
+                  <input 
+                    type="text" 
+                    value={input} 
+                    disabled={loading}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+                    placeholder={activeTab === ToolType.MATH ? `Professional Math (${grade})...` : `Direct Knowledge (${grade})...`}
+                    className="w-full bg-slate-900 border border-white/10 p-6 rounded-2xl text-white text-lg focus:ring-2 focus:ring-amber-500/50 outline-none placeholder:text-slate-600 transition-all group-hover:border-white/20"
+                  />
+                  <button 
+                    onClick={() => handleSubmit()} 
+                    disabled={loading || !input.trim()}
+                    className="absolute right-4 top-4 p-2 bg-amber-600 rounded-xl hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg"
+                  >
+                    {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : <SendHorizontal className="w-6 h-6" />}
+                  </button>
+                </div>
+                <ResponseView content={response} loading={loading} sources={sources} />
+              </>
             )}
-
-            <div className="relative">
-              <input 
-                type="text" 
-                value={input} 
-                disabled={loading}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-                placeholder={activeTab === ToolType.MATH ? "2026 Math Sequence..." : "Enter Inquiry..."}
-                className="w-full bg-slate-900 border border-white/10 p-6 rounded-2xl text-white text-lg focus:ring-2 focus:ring-amber-500/50 outline-none"
-              />
-              <button 
-                onClick={() => handleSubmit()} 
-                className="absolute right-4 top-4 p-2 bg-amber-600 rounded-xl hover:bg-amber-500 transition-colors"
-              >
-                {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <SendHorizontal className="w-6 h-6" />}
-              </button>
-            </div>
-
-            <ResponseView content={response} loading={loading} sources={sources} />
           </div>
         )}
       </main>
 
-      <footer className="p-10 flex flex-col items-center gap-4">
+      <footer className="p-10 flex flex-col items-center gap-4 fixed bottom-0 left-0 right-0 pointer-events-none z-50">
         <button 
-          onClick={() => { setActiveTab(ToolType.GIFT); setView(ViewState.TOOL); setInput('Opening...'); handleSubmit(); }}
-          className="bg-red-600 p-4 rounded-2xl shadow-2xl hover:scale-110 transition-transform animate-bounce border-2 border-white/20"
+          onClick={() => { setActiveTab(ToolType.GIFT); setView(ViewState.TOOL); setInput('Request academic fact.'); handleSubmit(); }}
+          className="bg-red-600 p-4 rounded-2xl shadow-2xl hover:scale-110 active:scale-95 transition-all animate-bounce border-2 border-white/20 pointer-events-auto"
         >
           <Gift className="w-8 h-8 text-white" />
         </button>
-        <p className="text-[10px] font-black tracking-[1em] text-slate-600 uppercase">TSAI // FESTIVE PARADOX 2026</p>
+        <p className="text-[10px] font-black tracking-[1em] text-slate-600 uppercase select-none">TSAI // ACADEMIC PROTOCOL 2026</p>
       </footer>
 
       {/* Font Settings */}
       <div className="fixed bottom-4 left-4 z-[70]">
-        <button onClick={() => setShowFontSettings(!showFontSettings)} className="p-4 bg-white/5 border border-white/10 rounded-full text-slate-400 hover:text-white transition-all shadow-xl">
+        <button onClick={() => setShowFontSettings(!showFontSettings)} className="p-4 bg-white/5 border border-white/10 rounded-full text-slate-400 hover:text-white transition-all shadow-xl backdrop-blur-md">
           <Settings className={`w-5 h-5 ${showFontSettings ? 'rotate-90' : ''} transition-transform`} />
         </button>
         {showFontSettings && (
-          <div className="absolute bottom-16 left-0 bg-slate-900/90 backdrop-blur-3xl p-4 rounded-2xl border border-white/10 w-48 shadow-2xl flex flex-col gap-2">
+          <div className="absolute bottom-16 left-0 bg-slate-900/95 backdrop-blur-3xl p-4 rounded-2xl border border-white/10 w-48 shadow-2xl flex flex-col gap-2 overflow-hidden animate-in slide-in-from-bottom-2">
             {FONTS.map(f => (
               <button 
                 key={f.name} 
-                onClick={() => setCurrentFont(f.family)} 
-                className={`text-left p-2 rounded-lg text-sm ${currentFont === f.family ? 'bg-amber-600 text-white' : 'text-slate-400 hover:bg-white/5'}`}
+                onClick={() => { setCurrentFont(f.family); setShowFontSettings(false); }} 
+                className={`text-left p-2 rounded-lg text-sm transition-colors ${currentFont === f.family ? 'bg-amber-600 text-white' : 'text-slate-400 hover:bg-white/5'}`}
               >
                 {f.label}
               </button>
