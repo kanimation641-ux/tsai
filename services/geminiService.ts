@@ -35,21 +35,28 @@ export const getGeminiResponse = async (query: string, type: ToolType, grade: st
       contents: query || "Awaiting input.",
       config: {
         systemInstruction,
-        thinkingConfig: { thinkingBudget: 0 }, // Disable thinking for maximum speed
+        thinkingConfig: { thinkingBudget: 0 },
         tools: type === ToolType.KNOWLEDGE ? [{ googleSearch: {} }] : undefined,
       },
     });
 
-    const text = response.text || "Error: Signal lost.";
-    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    const sources = chunks.map((chunk: any) => ({
-      title: chunk.web?.title,
-      uri: chunk.web?.uri
-    })).filter((s: any) => s.title && s.uri);
+    const text = response.text || "Academic stream processing... result pending.";
+    
+    // Robust extraction of grounding sources
+    let sources: { title: string; uri: string }[] = [];
+    const candidate = response.candidates?.[0];
+    if (candidate?.groundingMetadata?.groundingChunks) {
+      sources = candidate.groundingMetadata.groundingChunks
+        .map((chunk: any) => ({
+          title: chunk.web?.title || chunk.text || "Source Link",
+          uri: chunk.web?.uri || "#"
+        }))
+        .filter((s: any) => s.uri && s.uri !== "#");
+    }
 
     return { text, sources };
   } catch (error) {
     console.error("Gemini API Error:", error);
-    throw error;
+    return { text: "Error: The academic neural pathway was interrupted. Please verify connectivity and try again.", sources: [] };
   }
 };

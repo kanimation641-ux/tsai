@@ -14,7 +14,10 @@ import {
   Radio,
   Keyboard,
   GraduationCap,
-  Volume2
+  Volume2,
+  Trash2,
+  History,
+  X
 } from 'lucide-react';
 import FestiveParticles from './components/FestiveParticles';
 import ResponseView from './components/ResponseView';
@@ -42,11 +45,15 @@ const GRADES = [
 
 // Audio Utils for Live API
 function decode(base64: string) {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
-  return bytes;
+  try {
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+    return bytes;
+  } catch (e) {
+    return new Uint8Array(0);
+  }
 }
 
 function encode(bytes: Uint8Array) {
@@ -77,9 +84,10 @@ const App: React.FC = () => {
   const [response, setResponse] = useState('');
   const [sources, setSources] = useState<{ title: string; uri: string }[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [currentFont, setCurrentFont] = useState(FONTS[0].family);
   const [showFontSettings, setShowFontSettings] = useState(false);
-  const [grade, setGrade] = useState(GRADES[1]); // Default Middle School
+  const [grade, setGrade] = useState(GRADES[1]); 
 
   // Live Session States
   const [isLive, setIsLive] = useState(false);
@@ -102,9 +110,14 @@ const App: React.FC = () => {
     localStorage.setItem('tsai-user-grade', newGrade);
   };
 
+  const clearHistory = () => {
+    setHistory([]);
+    localStorage.removeItem('tsai-paradox-history');
+  };
+
   const stopLiveSession = () => {
     if (sessionRef.current) {
-      sessionRef.current.close?.();
+      try { sessionRef.current.close?.(); } catch(e) {}
       sessionRef.current = null;
     }
     activeSourcesRef.current.forEach(s => {
@@ -130,22 +143,14 @@ const App: React.FC = () => {
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         config: {
           responseModalities: [Modality.AUDIO],
-          thinkingConfig: { thinkingBudget: 0 }, // Ensure maximum speed for Spelling Bee
+          thinkingConfig: { thinkingBudget: 0 },
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Charon' } } },
-          systemInstruction: `STRICT ACADEMIC PROTOCOL: Instant Voice Spelling Master.
+          systemInstruction: `STRICT ACADEMIC PROTOCOL: Voice-Only Spelling Master.
           - TARGET GRADE: ${grade}.
-          - MISSION: High-Speed Progressive Voice Spelling Bee.
-          - CRITICAL: NO TEXT OUTPUT. DO NOT type the word or spelling in transcriptions. AUDITORY PRACTICE ONLY.
-          - SPEED: Deliver words INSTANTANEOUSLY. Minimal latency is priority. 
-          - PROGRESSION:
-            1. Start with an EASY word (3-4 letters).
-            2. Every correct response = IMMEDIATELY give a HARDER word.
-            3. Increase complexity rapidly with each success.
-          - RULES:
-            - User must speak the letters clearly.
-            - If correct: Say only "Correct. Next word: [Word]" or just "[Word]".
-            - If wrong: Say "Incorrect. The word was [word]. New word: [Word]."
-          - TONE: Professional, ultra-efficient, academic. NO JOKES. NO CONVERSATION.`,
+          - MISSION: Instant Voice Spelling Bee.
+          - CRITICAL: DO NOT type words or spellings in the text transcript. AUDITORY ONLY.
+          - PROGRESSION: Give a word, wait for user to speak the letters, confirm and give a HARDER word instantly.
+          - TONE: Professional and fast. No conversational filler.`,
           inputAudioTranscription: {},
           outputAudioTranscription: {},
         },
@@ -154,7 +159,7 @@ const App: React.FC = () => {
             setIsLive(true);
             setLoading(false);
             sessionPromise.then(s => {
-              s.send({ parts: [{ text: `System online. Level: ${grade}. Start Spelling Bee IMMEDIATELY with an EASY word.` }] });
+              s.send({ parts: [{ text: `Level: ${grade}. Initiate high-speed spelling bee word one.` }] });
             });
 
             const source = inputCtx.createMediaStreamSource(stream);
@@ -175,17 +180,16 @@ const App: React.FC = () => {
           },
           onmessage: async (msg: LiveServerMessage) => {
             if (msg.serverContent?.outputTranscription) {
-              setLiveTranscript(prev => ({ ...prev, master: "[Audio Signal Only]" }));
+              setLiveTranscript(prev => ({ ...prev, master: "[Audio Incoming...]" }));
             }
             if (msg.serverContent?.inputTranscription) {
-              const text = msg.serverContent.inputTranscription.text || "";
-              setLiveTranscript(prev => ({ ...prev, user: text }));
+              setLiveTranscript(prev => ({ ...prev, user: msg.serverContent?.inputTranscription?.text || "" }));
             }
             if (msg.serverContent?.turnComplete) {
               setTimeout(() => setLiveTranscript({ user: '', master: '' }), 1500);
             }
 
-            const audioBase64 = msg.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+            const audioBase64 = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (audioBase64 && audioContextsRef.current) {
               const { output } = audioContextsRef.current;
               nextStartTimeRef.current = Math.max(nextStartTimeRef.current, output.currentTime);
@@ -207,14 +211,14 @@ const App: React.FC = () => {
           },
           onclose: () => setIsLive(false),
           onerror: (e) => {
-            console.error("Live API Error:", e);
+            console.error("Live Stream Error:", e);
             setIsLive(false);
           },
         }
       });
       sessionRef.current = await sessionPromise;
     } catch (err) {
-      console.error("Live Session Initiation Error:", err);
+      console.error("Live Init Error:", err);
       setIsLive(false);
       setLoading(false);
     }
@@ -240,11 +244,11 @@ const App: React.FC = () => {
         response: result.text, 
         timestamp: Date.now() 
       };
-      const updated = [newItem, ...history].slice(0, 10);
+      const updated = [newItem, ...history].slice(0, 50);
       setHistory(updated);
       localStorage.setItem('tsai-paradox-history', JSON.stringify(updated));
     } catch (err) {
-      setResponse("System Error: Academic stream interrupted. Please check connectivity.");
+      setResponse("Fatal Paradox: Connection with the academic archive was lost.");
     } finally {
       setLoading(false);
     }
@@ -284,7 +288,6 @@ const App: React.FC = () => {
            <span className="newyear-font text-yellow-500 text-sm flex items-center">2026</span>
         </div>
 
-        {/* Grade Selector */}
         <div className="mt-8 flex items-center gap-3 bg-white/5 border border-white/10 px-4 py-2 rounded-2xl backdrop-blur-md">
           <GraduationCap className="w-5 h-5 text-amber-500" />
           <select 
@@ -301,9 +304,9 @@ const App: React.FC = () => {
         {view === ViewState.HOME ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in zoom-in duration-500">
             {[
-              { type: ToolType.MATH, title: "Math Solver", icon: Binary, desc: "Direct Solutions" },
-              { type: ToolType.KNOWLEDGE, title: "Knowledge AI", icon: Globe, desc: "Fast Facts" },
-              { type: ToolType.SPELLING_BEE, title: "Spelling Practice", icon: Radio, desc: "Voice-Only Practice" }
+              { type: ToolType.MATH, title: "Math Solver", icon: Binary, desc: "Step-by-Step" },
+              { type: ToolType.KNOWLEDGE, title: "Knowledge AI", icon: Globe, desc: "Global Archive" },
+              { type: ToolType.SPELLING_BEE, title: "Spelling Practice", icon: Radio, desc: "Voice Master" }
             ].map((t) => (
               <button 
                 key={t.type} 
@@ -337,7 +340,7 @@ const App: React.FC = () => {
                 <div className={`p-12 rounded-3xl border border-white/10 bg-slate-900/60 backdrop-blur-3xl shadow-2xl relative overflow-hidden flex flex-col items-center gap-8 text-center`}>
                   {isLive && (
                     <div className="absolute top-4 right-6 flex items-center gap-2">
-                       <span className="text-[10px] font-black text-red-500 uppercase tracking-widest animate-pulse">Live Practice</span>
+                       <span className="text-[10px] font-black text-red-500 uppercase tracking-widest animate-pulse">Academic Link Active</span>
                        <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_10px_#ef4444]" />
                     </div>
                   )}
@@ -349,13 +352,13 @@ const App: React.FC = () => {
                   <div className="flex flex-col gap-4">
                     <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Listen & Speak</h3>
                     <p className="text-slate-400 max-w-md mx-auto leading-relaxed">
-                      {loading ? 'Connecting to Master...' : 'Listen carefully. The AI will speak the word. Reply by speaking the letters to practice.'}
+                      {loading ? 'Booting Academic Master...' : 'Master is speaking. Listen for the word, then spell it out loud clearly.'}
                     </p>
                   </div>
 
                   {liveTranscript.user && (
                     <div className="flex flex-col gap-2 items-center animate-in zoom-in duration-300 w-full">
-                      <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Auditory Input Captured</span>
+                      <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Voice Detected</span>
                       <p className="text-2xl text-blue-300 font-black bg-blue-500/10 px-8 py-4 rounded-3xl border border-blue-500/20 tracking-[0.2em] uppercase">
                         {liveTranscript.user}
                       </p>
@@ -363,7 +366,7 @@ const App: React.FC = () => {
                   )}
 
                   <div className="mt-4 flex items-center gap-3 text-red-500 text-sm font-black uppercase tracking-widest bg-red-500/5 px-6 py-3 rounded-2xl border border-red-500/10">
-                    <Mic className="w-4 h-4 animate-bounce" /> Microphone is Active
+                    <Mic className="w-4 h-4 animate-bounce" /> Mic Active
                   </div>
                 </div>
               </div>
@@ -376,7 +379,7 @@ const App: React.FC = () => {
                     disabled={loading}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-                    placeholder={activeTab === ToolType.MATH ? `Professional Math (${grade})...` : `Direct Knowledge (${grade})...`}
+                    placeholder={activeTab === ToolType.MATH ? `Professional Math (${grade})...` : `Direct Knowledge Archive (${grade})...`}
                     className="w-full bg-slate-900 border border-white/10 p-6 rounded-2xl text-white text-lg focus:ring-2 focus:ring-amber-500/50 outline-none placeholder:text-slate-600 transition-all group-hover:border-white/20"
                   />
                   <button 
@@ -394,9 +397,10 @@ const App: React.FC = () => {
         )}
       </main>
 
+      {/* Fixed UI Components */}
       <footer className="p-10 flex flex-col items-center gap-4 fixed bottom-0 left-0 right-0 pointer-events-none z-50">
         <button 
-          onClick={() => { setActiveTab(ToolType.GIFT); setView(ViewState.TOOL); setInput('Request academic fact.'); handleSubmit(); }}
+          onClick={() => { setActiveTab(ToolType.GIFT); setView(ViewState.TOOL); setInput('Festive fact request.'); handleSubmit(); }}
           className="bg-red-600 p-4 rounded-2xl shadow-2xl hover:scale-110 active:scale-95 transition-all animate-bounce border-2 border-white/20 pointer-events-auto"
         >
           <Gift className="w-8 h-8 text-white" />
@@ -404,7 +408,52 @@ const App: React.FC = () => {
         <p className="text-[10px] font-black tracking-[1em] text-slate-600 uppercase select-none">TSAI // ACADEMIC PROTOCOL 2026</p>
       </footer>
 
-      {/* Font Settings */}
+      {/* Memory Saver (History) Corner Component */}
+      <div className="fixed bottom-4 right-4 z-[70] flex flex-col items-end gap-2">
+        {showHistory && (
+          <div className="bg-slate-900/95 backdrop-blur-3xl border border-white/10 w-80 max-h-[70vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-right-4">
+            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
+              <h3 className="text-xs font-black uppercase tracking-widest text-amber-500 flex items-center gap-2">
+                <History className="w-3 h-3" /> Memory Vault
+              </h3>
+              <div className="flex gap-2">
+                <button onClick={clearHistory} className="p-1.5 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+                <button onClick={() => setShowHistory(false)} className="p-1.5 hover:bg-white/10 text-slate-400 rounded-lg transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 custom-scrollbar">
+              {history.length === 0 ? (
+                <p className="text-slate-500 text-xs italic text-center py-8">No academic traces found.</p>
+              ) : (
+                history.map((item) => (
+                  <div key={item.id} className="bg-white/5 p-3 rounded-xl border border-white/5 hover:border-white/10 transition-all cursor-default group">
+                    <div className="flex justify-between items-start mb-1">
+                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase ${getColorClasses(item.type).bg} ${getColorClasses(item.type).text}`}>
+                        {item.type}
+                      </span>
+                      <span className="text-[8px] text-slate-600">{new Date(item.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <p className="text-xs text-slate-300 font-bold line-clamp-1">{item.query}</p>
+                    <p className="text-[10px] text-slate-500 line-clamp-2 mt-1">{item.response}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+        <button 
+          onClick={() => setShowHistory(!showHistory)} 
+          className="p-4 bg-white/5 border border-white/10 rounded-full text-slate-400 hover:text-amber-500 hover:bg-white/10 transition-all shadow-xl backdrop-blur-md"
+        >
+          <History className={`w-5 h-5 ${showHistory ? 'rotate-180' : ''} transition-transform`} />
+        </button>
+      </div>
+
+      {/* Settings Panel */}
       <div className="fixed bottom-4 left-4 z-[70]">
         <button onClick={() => setShowFontSettings(!showFontSettings)} className="p-4 bg-white/5 border border-white/10 rounded-full text-slate-400 hover:text-white transition-all shadow-xl backdrop-blur-md">
           <Settings className={`w-5 h-5 ${showFontSettings ? 'rotate-90' : ''} transition-transform`} />
