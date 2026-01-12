@@ -1,12 +1,11 @@
-
 export enum ToolType {
   MATH = 'MATH',
   KNOWLEDGE = 'KNOWLEDGE',
-  SPELLING_BEE = 'SPELLING_BEE',
-  GIFT = 'GIFT'
+  FACT = 'FACT'
 }
 
 export enum ViewState {
+  AUTH = 'AUTH',
   HOME = 'HOME',
   TOOL = 'TOOL'
 }
