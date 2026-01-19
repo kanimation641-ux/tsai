@@ -1,0 +1,1 @@
+// This component has been retired in favor of BackgroundEffect.tsx

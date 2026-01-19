@@ -3,94 +3,96 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#f8fafc">
-    <title>TSAI: Academic Intelligence</title>
+    <meta name="theme-color" content="#ffffff">
+    <title>TSAI: White Christmas Intelligence</title>
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap" rel="stylesheet">
     <style>
         :root {
             --sat: env(safe-area-inset-top);
             --sar: env(safe-area-inset-right);
             --sab: env(safe-area-inset-bottom);
             --sal: env(safe-area-inset-left);
+            --premium-gold: #b8860b;
+            --premium-gold-light: #d4af37;
+            --premium-silver: #cbd5e1;
+            --silver-light: #f8fafc;
+            --white-pure: #ffffff;
         }
 
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f8fafc;
-            color: #0f172a;
+            background-color: var(--white-pure);
+            color: #475569;
             overflow-x: hidden;
             min-height: 100vh;
-            /* Support for mobile browser address bar height changes */
             min-height: -webkit-fill-available;
+        }
+
+        .premium-font {
+            font-family: 'Playfair Display', serif;
         }
 
         html {
             height: -webkit-fill-available;
         }
         
-        .silver-mesh-bg {
+        .silver-white-bg {
             background: 
                 radial-gradient(at 0% 0%, #ffffff 0%, transparent 50%),
-                radial-gradient(at 100% 0%, #f1f5f9 0%, transparent 50%),
-                radial-gradient(at 100% 100%, #e2e8f0 0%, transparent 50%),
-                radial-gradient(at 0% 100%, #cbd5e1 0%, transparent 50%);
+                radial-gradient(at 100% 0%, #f8fafc 0%, transparent 50%),
+                radial-gradient(at 100% 100%, #f1f5f9 0%, transparent 50%),
+                radial-gradient(at 0% 100%, #ffffff 0%, transparent 50%);
             background-attachment: fixed;
             background-size: cover;
         }
 
         .ai-title-text {
-            background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
+            background: linear-gradient(135deg, #b8860b, #d4af37, #b8860b);
+            background-size: 200% 200%;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             font-weight: 900;
-            letter-spacing: -0.05em;
+            letter-spacing: -0.02em;
+            animation: gold-shimmer 4s linear infinite;
+        }
+
+        @keyframes gold-shimmer {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
         }
 
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, 0.1); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--premium-silver); border-radius: 10px; }
         
         .glass-panel {
-            background: rgba(255, 255, 255, 0.75);
-            backdrop-filter: blur(24px);
-            -webkit-backdrop-filter: blur(24px);
-            border: 1px solid rgba(255, 255, 255, 1);
-            box-shadow: 0 10px 40px -10px rgba(15, 23, 42, 0.08);
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(203, 213, 225, 0.4);
+            box-shadow: 0 15px 35px -10px rgba(148, 163, 184, 0.1);
         }
 
-        .particle {
-            position: absolute;
-            pointer-events: none;
-            z-index: 1;
+        .premium-button-gold {
+            background: linear-gradient(135deg, #b8860b, #d4af37);
+            color: white;
+            box-shadow: 0 8px 20px -5px rgba(184, 134, 11, 0.2);
         }
 
-        @keyframes fall {
-            from { transform: translateY(-10vh) rotate(0deg); opacity: 0; }
-            10% { opacity: 1; }
-            90% { opacity: 1; }
-            to { transform: translateY(110vh) rotate(360deg); opacity: 0; }
+        .premium-button-silver {
+            background: white;
+            color: #64748b;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 12px -2px rgba(148, 163, 184, 0.1);
         }
 
-        @keyframes twinkle {
-            0%, 100% { opacity: 0.3; transform: scale(0.8); }
-            50% { opacity: 1; transform: scale(1.2); }
-        }
-
-        .animate-fall {
-            animation: fall linear infinite;
-        }
-
-        .animate-twinkle {
-            animation: twinkle ease-in-out infinite;
-        }
-
-        /* Responsive tweaks */
-        @media (max-width: 640px) {
-            .ai-title-text {
-                letter-spacing: -0.02em;
-            }
+        .tool-icon-silver {
+            background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+            border: 1px solid #e2e8f0;
+            color: #d4af37;
         }
     </style>
 <script type="importmap">
@@ -105,7 +107,7 @@
 }
 </script>
 </head>
-<body class="silver-mesh-bg">
+<body class="silver-white-bg">
     <div id="root"></div>
     <script type="module" src="./index.tsx"></script>
 </body>
