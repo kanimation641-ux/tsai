@@ -1,6 +1,5 @@
 export enum ToolType {
   MATH = 'MATH SOLVER',
-  KNOWLEDGE = 'GLOBAL CORE',
   FACT = 'FACT',
   STORY = 'TALES',
   WORD = 'WORD',

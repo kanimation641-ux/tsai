@@ -35,11 +35,6 @@ export const getGeminiResponse = async (
     - MISSION: Provide clear, rigorous mathematical solutions. Use professional Markdown formatting.
     - REQUIREMENT: Conclude precisely with "Final Answer: [result]".
     - Leverage LaTeX-style formulas where applicable.`;
-  } else if (type === ToolType.KNOWLEDGE) {
-    systemInstruction = premiumPrefix + `MODULE: Global Core Knowledge Archive. 
-    - Target Academic Level: ${grade}.
-    - MISSION: Deliver high-fidelity, verified, and factual intelligence.
-    - Utilize Google Search for real-time verification and up-to-the-minute news/events.`;
   } else if (type === ToolType.FACT) {
     systemInstruction = premiumPrefix + `MODULE: Curiosity Archive.
     - MISSION: Provide a sophisticated, verifiable, and significant general knowledge fact.
@@ -83,7 +78,6 @@ export const getGeminiResponse = async (
       config: {
         systemInstruction,
         thinkingConfig: { thinkingBudget: 0 }, // Disable thinking for maximum raw speed
-        tools: type === ToolType.KNOWLEDGE ? [{ googleSearch: {} }] : undefined,
       },
     });
 

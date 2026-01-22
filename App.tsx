@@ -605,11 +605,11 @@ const App: React.FC = () => {
                 <h2 className="text-xs sm:text-sm font-black ai-title-text premium-font leading-tight">Math Solver</h2>
                 <p className="text-slate-400 text-[7px] sm:text-[8px] uppercase tracking-widest font-extrabold mt-1">Logic</p>
               </button>
-              <button onClick={() => openTool(ToolType.KNOWLEDGE)} className="group glass-panel p-5 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] hover:translate-y-[-8px] transition-all text-center">
+              <button onClick={() => openTool(ToolType.FACT)} className="group glass-panel p-5 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] hover:translate-y-[-8px] transition-all text-center">
                 <div className="w-12 sm:w-16 h-12 sm:h-16 tool-icon-silver rounded-xl sm:rounded-2xl flex items-center justify-center mb-4 mx-auto shadow-sm group-hover:border-amber-400 group-hover:scale-105 transition-all">
-                  <Globe className="w-6 sm:w-8 h-6 sm:h-8" />
+                  <TrendingUp className="w-6 sm:w-8 h-6 sm:h-8" />
                 </div>
-                <h2 className="text-xs sm:text-sm font-black ai-title-text premium-font leading-tight">Global Core</h2>
+                <h2 className="text-xs sm:text-sm font-black ai-title-text premium-font leading-tight">Elite Fact</h2>
                 <p className="text-slate-400 text-[7px] sm:text-[8px] uppercase tracking-widest font-extrabold mt-1">Archive</p>
               </button>
               <button onClick={() => openTool(ToolType.SCIENCE)} className="group glass-panel p-5 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] hover:translate-y-[-8px] transition-all text-center">
@@ -744,7 +744,7 @@ const App: React.FC = () => {
                       autoFocus 
                       onChange={(e) => setInput(e.target.value)} 
                       onKeyDown={(e) => e.key === 'Enter' && handleSubmit()} 
-                      placeholder={activeTab === ToolType.STORY ? "Construct narrative..." : activeTab === ToolType.MATH ? `Process equation...` : activeTab === ToolType.SCIENCE ? "Analyze objective..." : `Consult Global Core...`} 
+                      placeholder={activeTab === ToolType.STORY ? "Construct narrative..." : activeTab === ToolType.MATH ? `Process equation...` : activeTab === ToolType.SCIENCE ? "Analyze objective..." : `Consult Archive...`} 
                       className="w-full bg-white border border-slate-200 p-5 sm:p-8 rounded-[1.25rem] sm:rounded-[2rem] text-slate-900 text-base sm:text-xl font-medium focus:ring-4 focus:ring-amber-50 outline-none placeholder:text-slate-300 transition-all shadow-xl backdrop-blur-md pr-12 sm:pr-40" 
                     />
                     <div className="absolute right-2 top-2 sm:right-4 sm:top-1/2 sm:-translate-y-1/2 flex items-center gap-1.5">
