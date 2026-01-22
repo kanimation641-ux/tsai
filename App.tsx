@@ -26,13 +26,18 @@ import {
   MicOff, 
   UserCheck,
   RefreshCw,
-  Eye, 
-  EyeOff,
+  Play,
+  RotateCcw,
   FlaskConical,
   Code2,
   Flame,
   TrendingUp,
-  Diamond
+  Diamond,
+  Files,
+  Search,
+  Layout,
+  Settings,
+  ArrowLeft
 } from 'lucide-react';
 import ResponseView from './components/ResponseView.tsx';
 import BackgroundEffect from './components/BackgroundEffect.tsx';
@@ -71,7 +76,7 @@ const App: React.FC = () => {
   const [isBanned, setIsBanned] = useState(false);
   const [banTimeRemaining, setBanTimeRemaining] = useState(0);
 
-  const [examName, setExamName] = useState(() => localStorage.getItem('tsai-exam-name') || 'Master Objective');
+  const [examName, setExamName] = useState(() => localStorage.getItem('tsai-exam-name') || 'Strategic Assessment');
   const [examDate, setExamDate] = useState(() => localStorage.getItem('tsai-exam-date') || '');
   const [isEditingExam, setIsEditingExam] = useState(false);
   const [tempExamName, setTempExamName] = useState(examName);
@@ -82,7 +87,7 @@ const App: React.FC = () => {
   const [sources, setSources] = useState<{ title: string; uri: string }[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [grade, setGrade] = useState(GRADES[1]); 
+  const [grade, setGrade] = useState(GRADES[3]); 
   const [personality, setPersonality] = useState<PersonalityType>(PersonalityType.TEACHER);
 
   const [wordOfDay, setWordOfDay] = useState<string>('');
@@ -93,7 +98,12 @@ const App: React.FC = () => {
   const [motivation, setMotivation] = useState<string>('');
   const [isMotivationLoading, setIsMotivationLoading] = useState(false);
 
+  // Code Astro specific state
+  const [codeContent, setCodeContent] = useState(''); 
+  const [isPreviewing, setIsPreviewing] = useState(false);
+
   const recognitionRef = useRef<any>(null);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('tsai-history');
@@ -178,12 +188,12 @@ const App: React.FC = () => {
     setIsWordLoading(true);
     setIsTranslated(false);
     try {
-      const targetCountry = country || wordCountry || "international archives";
+      const targetCountry = country || wordCountry || "international linguistic archive";
       const prompt = `Give me a beautiful word from ${targetCountry}. Only provide the response in the specified format without extra chatter.`;
-      const res = await getGeminiResponse(prompt, ToolType.WORD, grade, personality);
+      const res = await getGeminiResponse(prompt, ToolType.WORD, grade, personality, (t) => setWordOfDay(t));
       setWordOfDay(res.text);
     } catch (e) {
-      setWordOfDay("Unable to retrieve linguistic intelligence.");
+      setWordOfDay("Archive momentarily unavailable.");
     } finally {
       setIsWordLoading(false);
     }
@@ -193,10 +203,10 @@ const App: React.FC = () => {
     setIsMotivationLoading(true);
     try {
       const prompt = "Provide a high-level motivational insight for an elite strategic mind.";
-      const res = await getGeminiResponse(prompt, ToolType.MOTIVATION, grade, personality);
+      const res = await getGeminiResponse(prompt, ToolType.MOTIVATION, grade, personality, (t) => setMotivation(t));
       setMotivation(res.text);
     } catch (e) {
-      setMotivation("Rise above. Excellence is the only objective.");
+      setMotivation("Excellence is the only objective.");
     } finally {
       setIsMotivationLoading(false);
     }
@@ -271,7 +281,7 @@ const App: React.FC = () => {
       setView(ViewState.HOME);
       fetchWordOfDay();
       fetchMotivation();
-    }, 1200);
+    }, 1000);
   };
 
   const handleLogout = () => {
@@ -322,10 +332,10 @@ const App: React.FC = () => {
     const wordMatch = wordLine.match(/#\s*(.*?)\s*\((.*?)\)/);
     
     return {
-      word: wordMatch ? wordMatch[1] : (wordLine.replace('#', '').trim() || 'Knowledge'),
+      word: wordMatch ? wordMatch[1] : (wordLine.replace('#', '').trim() || 'Insight'),
       origin: wordMatch ? wordMatch[2] : (lines.find(l => l.toLowerCase().includes('origin'))?.split(':')?.slice(1).join(':').trim() || 'Global'),
       pronunciation: lines.find(l => l.toLowerCase().includes('pronunciation'))?.split(':')?.slice(1).join(':').trim() || '',
-      definition: lines.find(l => l.toLowerCase().includes('definition'))?.split(':')?.slice(1).join(':').trim() || 'Accessing databases...',
+      definition: lines.find(l => l.toLowerCase().includes('definition'))?.split(':')?.slice(1).join(':').trim() || 'Connecting to archive...',
     };
   }, [wordOfDay]);
 
@@ -333,9 +343,9 @@ const App: React.FC = () => {
     if (!motivation) return null;
     const lines = motivation.split('\n').map(l => l.trim()).filter(l => l);
     return {
-      title: lines.find(l => l.startsWith('#'))?.replace('#', '').trim() || 'Strategic Directive',
-      quote: lines.find(l => l.startsWith('"'))?.replace(/"/g, '').trim() || 'Excellence is a habit.',
-      commentary: lines.find(l => l.startsWith('-'))?.replace('-', '').trim() || 'Maintain operational standards.'
+      title: lines.find(l => l.startsWith('#'))?.replace('#', '').trim() || 'Directive',
+      quote: lines.find(l => l.startsWith('"'))?.replace(/"/g, '').trim() || 'Excellence is a choice.',
+      commentary: lines.find(l => l.startsWith('-'))?.replace('-', '').trim() || 'Maintain focus.'
     };
   }, [motivation]);
 
@@ -351,9 +361,14 @@ const App: React.FC = () => {
     setResponse('');
     setSources([]);
     try {
-      const result = await getGeminiResponse(queryToUse, activeTab, grade, personality);
+      // Use streaming to make answers feel much faster
+      const result = await getGeminiResponse(queryToUse, activeTab, grade, personality, (t) => {
+        setResponse(t);
+      });
+      
       setResponse(result.text);
       setSources(result.sources || []);
+      
       if (activeTab === ToolType.MATH) {
         const lines = result.text.split('\n');
         const finalAnswerLine = lines.reverse().find(line => line.toLowerCase().includes('final answer'));
@@ -361,12 +376,13 @@ const App: React.FC = () => {
       } else if (activeTab !== ToolType.MOTIVATION) {
         speak(result.text);
       }
+      
       const newItem: HistoryItem = { id: Date.now().toString(), type: activeTab, query: queryToUse, response: result.text, timestamp: Date.now() };
       const updated = [newItem, ...history].slice(0, 50);
       setHistory(updated);
       localStorage.setItem('tsai-history', JSON.stringify(updated));
     } catch (err) {
-      setResponse("Intelligence archives accessible signal low. Retrying...");
+      setResponse("Archives accessible signal low. Retrying connection...");
     } finally {
       setLoading(false);
     }
@@ -378,8 +394,9 @@ const App: React.FC = () => {
     setResponse('');
     setSources([]);
     setInput('');
+    setIsPreviewing(false); 
     if (type === ToolType.FACT) {
-      const q = "Tell me a sophisticated general knowledge fact";
+      const q = "Provide a high-level general knowledge fact.";
       setTimeout(() => handleSubmit(undefined, q), 100);
     } else if (type === ToolType.MOTIVATION) {
       const q = "Provide a high-level motivational insight.";
@@ -387,9 +404,14 @@ const App: React.FC = () => {
     }
   };
 
+  const lineNumbers = useMemo(() => {
+    const lines = codeContent.split('\n').length;
+    return Array.from({ length: lines || 1 }, (_, i) => i + 1);
+  }, [codeContent]);
+
   if (isBanned) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
+      <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center">
         <BackgroundEffect density={30} />
         <div className="z-50 glass-panel p-8 sm:p-12 rounded-[2rem] sm:rounded-[3rem] shadow-2xl max-w-md w-full">
           <div className="w-16 h-16 sm:w-24 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse"><Ban className="w-8 h-8 text-amber-600" /></div>
@@ -419,7 +441,7 @@ const App: React.FC = () => {
                   <Mail className={`w-4 h-4 sm:w-5 h-5 mr-3 ${emailError ? 'text-red-400' : 'text-slate-300'}`} />
                   <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@gmail.com" className="bg-transparent w-full text-sm font-medium text-slate-900 outline-none" autoFocus />
                 </div>
-                {emailError && <div className="flex items-center gap-1.5 mt-2 ml-4 text-red-400 animate-in slide-in-from-top-1 text-[9px] font-bold uppercase">{emailError}</div>}
+                {emailError && <div className="flex items-center gap-1.5 mt-2 ml-4 text-red-400 text-[9px] font-bold uppercase">{emailError}</div>}
               </div>
               <button type="submit" disabled={authLoading} className="w-full premium-button-gold p-4 sm:p-5 rounded-2xl sm:rounded-3xl font-bold transition-all active:scale-95 disabled:opacity-50 mt-2 text-sm sm:text-base">
                 {authLoading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Initialize Connection"}
@@ -499,7 +521,7 @@ const App: React.FC = () => {
                           {examName}
                           <button onClick={() => setIsEditingExam(true)} className="opacity-0 group-hover/title:opacity-100 p-1.5 hover:bg-slate-50 rounded-lg transition-all"><Edit2 className="w-3.5 h-3.5 text-slate-300" /></button>
                         </h2>
-                        <p className="text-slate-400 text-[8px] sm:text-[10px] font-black uppercase tracking-[0.3em]">{examDate ? `ETA ${new Date(examDate).toLocaleDateString(undefined, { dateStyle: 'long' })}` : 'Objective Clock'}</p>
+                        <p className="text-slate-400 text-[8px] sm:text-[10px] font-black uppercase tracking-[0.3em]">{examDate ? `ETA ${new Date(examDate).toLocaleDateString(undefined, { dateStyle: 'long' })}` : 'Objective Counter'}</p>
                       </div>
                     )}
                   </div>
@@ -514,17 +536,16 @@ const App: React.FC = () => {
                     ))}
                   </div>
                 </div>
-                {!examDate && !isEditingExam && (<button onClick={() => setIsEditingExam(true)} className="absolute inset-0 bg-slate-50/20 backdrop-blur-[1px] flex items-center justify-center text-slate-400 font-black uppercase tracking-[0.2em] text-xs sm:text-sm hover:bg-slate-100/50 transition-all z-20"><Calendar className="w-4 h-4 mr-3" /> Set Objective</button>)}
+                {!examDate && !isEditingExam && (<button onClick={() => setIsEditingExam(true)} className="absolute inset-0 bg-slate-50/20 backdrop-blur-[1px] flex items-center justify-center text-slate-400 font-black uppercase tracking-[0.2em] text-xs sm:text-sm hover:bg-slate-100/50 transition-all z-20"><Calendar className="w-4 h-4 mr-3" /> Set Assessment</button>)}
               </div>
               
               <div className="flex flex-col gap-4 sm:gap-6">
-                {/* WORD OF THE DAY WIDGET - Updated with Switch and Translate buttons */}
                 <div className="glass-panel p-5 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] shadow-xl flex flex-col justify-between relative group overflow-hidden flex-1">
                   <div className="relative z-10 min-w-0">
                     <div className="flex items-center justify-between gap-2 mb-3">
                       <div className="flex items-center gap-1.5">
                         <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                        <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-400">Word of Day</span>
+                        <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-400">Linguistic Insight</span>
                       </div>
                       <input type="text" placeholder="Archive..." value={wordCountry} onChange={(e) => setWordCountry(e.target.value)} className="bg-transparent text-[8px] sm:text-[10px] font-bold text-slate-600 placeholder:text-slate-300 outline-none w-16 sm:w-20 border-b border-slate-100" />
                     </div>
@@ -539,22 +560,15 @@ const App: React.FC = () => {
                           </div>
                         ) : (
                           <div className="py-2 animate-in fade-in">
-                            <p className="text-[8px] sm:text-[9px] font-black uppercase tracking-[0.2em] text-amber-600 mb-0.5">English Meaning</p>
+                            <p className="text-[8px] sm:text-[9px] font-black uppercase tracking-[0.2em] text-amber-600 mb-0.5">Translation</p>
                             <p className="text-lg sm:text-2xl font-black text-slate-900 leading-tight">{parsedWord.definition}</p>
                           </div>
                         )}
                         <div className="mt-4 flex gap-2">
-                          <button 
-                            onClick={() => fetchWordOfDay()} 
-                            disabled={isWordLoading} 
-                            className="flex-1 py-2.5 rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest premium-button-silver flex items-center justify-center gap-2"
-                          >
+                          <button onClick={() => fetchWordOfDay()} disabled={isWordLoading} className="flex-1 py-2.5 rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest premium-button-silver flex items-center justify-center gap-2">
                             <RefreshCw className={`w-3 h-3 ${isWordLoading ? 'animate-spin' : ''}`} /> Switch Word
                           </button>
-                          <button 
-                            onClick={() => setIsTranslated(!isTranslated)} 
-                            className={`flex-1 py-2.5 rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest transition-all ${isTranslated ? 'premium-button-silver' : 'premium-button-gold'}`}
-                          >
+                          <button onClick={() => setIsTranslated(!isTranslated)} className={`flex-1 py-2.5 rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest transition-all ${isTranslated ? 'premium-button-silver' : 'premium-button-gold'}`}>
                             {isTranslated ? "Show Original" : "Translate to English"}
                           </button>
                         </div>
@@ -567,7 +581,7 @@ const App: React.FC = () => {
                   <div className="relative z-10">
                     <div className="flex items-center gap-1.5 mb-3">
                       <Star className="w-3.5 h-3.5 text-amber-600" />
-                      <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-400">Motivation</span>
+                      <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-400">Directive</span>
                     </div>
                     {isMotivationLoading ? (
                       <div className="py-6 sm:py-8 flex flex-col items-center"><Loader2 className="w-5 h-5 text-amber-500 animate-spin" /></div>
@@ -629,32 +643,123 @@ const App: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-6 sm:gap-8 animate-in fade-in slide-in-from-right-4 duration-500 max-w-4xl mx-auto">
+          <div className="flex flex-col gap-6 sm:gap-8 animate-in fade-in slide-in-from-right-4 duration-500 max-w-5xl mx-auto">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <button onClick={() => setView(ViewState.HOME)} className="premium-button-silver p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl flex items-center justify-center gap-2 font-bold shrink-0">
                 <ChevronLeft className="w-4 h-4" /> <span>Back to Hub</span>
               </button>
               <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                <div className="px-3 py-1.5 sm:px-5 sm:py-2.5 rounded-xl border border-slate-200 bg-white/80 text-slate-400 text-[8px] sm:text-[10px] font-black uppercase flex items-center gap-2 shadow-sm whitespace-nowrap"><span className="truncate">{grade}</span></div>
-                <div className="px-3 py-1.5 sm:px-5 sm:py-2.5 rounded-xl border border-slate-200 bg-white/80 text-slate-400 text-[8px] sm:text-[10px] font-black uppercase flex items-center gap-2 shadow-sm whitespace-nowrap"><span className="truncate">{personality}</span></div>
+                <div className="px-3 py-1.5 sm:px-5 sm:py-2.5 rounded-xl border border-slate-200 bg-white/80 text-slate-400 text-[8px] sm:text-[10px] font-black uppercase whitespace-nowrap"><span className="truncate">{grade}</span></div>
+                <div className="px-3 py-1.5 sm:px-5 sm:py-2.5 rounded-xl border border-slate-200 bg-white/80 text-slate-400 text-[8px] sm:text-[10px] font-black uppercase whitespace-nowrap"><span className="truncate">{personality}</span></div>
                 <div className="px-3 py-1.5 sm:px-5 sm:py-2.5 rounded-xl border border-amber-200 bg-white text-slate-800 font-black text-[8px] sm:text-[10px] uppercase shadow-sm">{activeTab}</div>
               </div>
             </div>
 
-            <div className="relative group flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <div className="relative flex-1 group">
-                <input type="text" value={input} disabled={loading} autoFocus onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSubmit()} placeholder={activeTab === ToolType.STORY ? "Request a narrative..." : activeTab === ToolType.MATH ? `Submit problem...` : activeTab === ToolType.SCIENCE ? "Identify objective..." : `Query Global Core...`} className="w-full bg-white border border-slate-200 p-5 sm:p-8 rounded-[1.25rem] sm:rounded-[2rem] text-slate-900 text-base sm:text-xl font-medium focus:ring-4 focus:ring-amber-50 outline-none placeholder:text-slate-300 transition-all shadow-xl backdrop-blur-md pr-12 sm:pr-40" />
-                <div className="absolute right-2 top-2 sm:right-4 sm:top-1/2 sm:-translate-y-1/2 flex items-center gap-1.5">
-                  <button onClick={toggleListening} className={`p-2 sm:p-3.5 rounded-lg sm:rounded-[1.25rem] transition-all shadow-lg flex items-center justify-center ${isListening ? 'bg-amber-500 text-white animate-pulse' : 'bg-slate-50 text-slate-400 border border-slate-200'}`}>
-                    {isListening ? <MicOff className="w-5 h-5 sm:w-7 h-7" /> : <Mic className="w-5 h-5 sm:w-7 h-7" />}
-                  </button>
-                  <button onClick={() => handleSubmit()} disabled={loading || !input.trim()} className="p-2 sm:p-3.5 premium-button-gold rounded-lg sm:rounded-[1.25rem] active:scale-95 transition-all">
-                    {loading ? <Loader2 className="w-5 h-5 sm:w-7 h-7 animate-spin" /> : <SendHorizontal className="w-5 h-5 sm:w-7 h-7" />}
-                  </button>
+            {activeTab === ToolType.CODING ? (
+              <div className="flex flex-col gap-4 animate-in fade-in duration-700">
+                <div className="glass-panel overflow-hidden rounded-[1.5rem] sm:rounded-[2.5rem] shadow-2xl relative min-h-[600px] flex border border-slate-200 bg-[#fefefe]">
+                  
+                  {/* VS Code Inspired Sidebar */}
+                  <div className="w-12 sm:w-16 bg-[#f3f3f3] border-r border-slate-200 flex flex-col items-center py-6 gap-6 shrink-0">
+                    <Files className="w-5 h-5 sm:w-6 sm:h-6 text-[#858585] cursor-pointer hover:text-amber-600 transition-colors" />
+                    <Search className="w-5 h-5 sm:w-6 sm:h-6 text-[#858585] cursor-pointer hover:text-amber-600 transition-colors" />
+                    <Layout className="w-5 h-5 sm:w-6 sm:h-6 text-[#858585] cursor-pointer hover:text-amber-600 transition-colors" />
+                    <Settings className="w-5 h-5 sm:w-6 sm:h-6 text-[#858585] cursor-pointer mt-auto mb-2" />
+                  </div>
+
+                  <div className="flex-1 flex flex-col relative">
+                    {!isPreviewing ? (
+                      <>
+                        {/* Editor Header */}
+                        <div className="h-10 bg-[#f3f3f3] border-b border-slate-200 flex items-center px-4 justify-between">
+                          <div className="flex items-center gap-1 bg-white h-full px-4 border-r border-slate-200">
+                            <Code2 className="w-3.5 h-3.5 text-amber-600" />
+                            <span className="text-[10px] font-bold text-slate-600">index.html</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <button 
+                              onClick={() => setCodeContent('')} 
+                              className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"
+                              title="Reset Forge"
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => setIsPreviewing(true)} 
+                              className="premium-button-gold px-5 py-1.5 rounded-lg text-[10px] font-black uppercase flex items-center gap-2 shadow-sm"
+                            >
+                              <Play className="w-3 h-3 fill-current" /> Run Forge
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Editor Content Area */}
+                        <div className="flex-1 flex bg-white font-mono text-sm sm:text-base relative group">
+                          {/* Line Numbers gutter */}
+                          <div className="w-10 sm:w-14 bg-[#f8f8f8] border-r border-slate-100 flex flex-col items-end py-4 pr-3 text-[#afafaf] select-none text-[11px] leading-[1.6]">
+                            {lineNumbers.map(num => (
+                              <div key={num} className="h-[1.6em]">{num}</div>
+                            ))}
+                          </div>
+                          {/* Main Textarea */}
+                          <textarea 
+                            ref={editorRef}
+                            value={codeContent} 
+                            onChange={(e) => setCodeContent(e.target.value)}
+                            placeholder="Start writing excellence from line 1..."
+                            className="flex-1 p-4 bg-transparent text-slate-800 outline-none resize-none leading-[1.6] custom-scrollbar"
+                            spellCheck={false}
+                            autoFocus
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex-1 bg-white relative animate-in zoom-in-95 duration-500">
+                        {/* Back to Code Button - Top Right Overlay */}
+                        <button 
+                          onClick={() => setIsPreviewing(false)} 
+                          className="absolute top-4 right-4 z-50 bg-white/90 backdrop-blur-md border border-slate-200 p-3 rounded-2xl shadow-xl flex items-center gap-2 text-slate-600 hover:text-amber-600 hover:bg-white transition-all active:scale-95 font-black uppercase text-[10px] tracking-widest"
+                        >
+                          <ArrowLeft className="w-4 h-4" /> Back to Forge
+                        </button>
+                        <iframe 
+                          title="Forge Result"
+                          srcDoc={codeContent}
+                          className="w-full h-full border-none"
+                          sandbox="allow-scripts"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-            <ResponseView content={response} loading={loading} sources={sources} onSpeak={() => { if (activeTab === ToolType.MATH) { const lines = response.split('\n'); const finalAnswerLine = lines.reverse().find(line => line.toLowerCase().includes('final answer')); speak(finalAnswerLine || response); } else { speak(response); } }} onStopSpeak={stopSpeaking} isSpeaking={isSpeaking} />
+            ) : (
+              <>
+                <div className="relative group flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                  <div className="relative flex-1 group">
+                    <input 
+                      type="text" 
+                      value={input} 
+                      disabled={loading} 
+                      autoFocus 
+                      onChange={(e) => setInput(e.target.value)} 
+                      onKeyDown={(e) => e.key === 'Enter' && handleSubmit()} 
+                      placeholder={activeTab === ToolType.STORY ? "Construct narrative..." : activeTab === ToolType.MATH ? `Process equation...` : activeTab === ToolType.SCIENCE ? "Analyze objective..." : `Consult Global Core...`} 
+                      className="w-full bg-white border border-slate-200 p-5 sm:p-8 rounded-[1.25rem] sm:rounded-[2rem] text-slate-900 text-base sm:text-xl font-medium focus:ring-4 focus:ring-amber-50 outline-none placeholder:text-slate-300 transition-all shadow-xl backdrop-blur-md pr-12 sm:pr-40" 
+                    />
+                    <div className="absolute right-2 top-2 sm:right-4 sm:top-1/2 sm:-translate-y-1/2 flex items-center gap-1.5">
+                      <button onClick={toggleListening} className={`p-2 sm:p-3.5 rounded-lg sm:rounded-[1.25rem] transition-all shadow-lg flex items-center justify-center ${isListening ? 'bg-amber-500 text-white animate-pulse' : 'bg-slate-50 text-slate-400 border border-slate-200'}`}>
+                        {isListening ? <MicOff className="w-5 h-5 sm:w-7 h-7" /> : <Mic className="w-5 h-5 sm:w-7 h-7" />}
+                      </button>
+                      <button onClick={() => handleSubmit()} disabled={loading || !input.trim()} className="p-2 sm:p-3.5 premium-button-gold rounded-lg sm:rounded-[1.25rem] active:scale-95 transition-all">
+                        {loading ? <Loader2 className="w-5 h-5 sm:w-7 h-7 animate-spin" /> : <SendHorizontal className="w-5 h-5 sm:w-7 h-7" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <ResponseView content={response} loading={loading} sources={sources} onSpeak={() => { if (activeTab === ToolType.MATH) { const lines = response.split('\n'); const finalAnswerLine = lines.reverse().find(line => line.toLowerCase().includes('final answer')); speak(finalAnswerLine || response); } else { speak(response); } }} onStopSpeak={stopSpeaking} isSpeaking={isSpeaking} />
+              </>
+            )}
           </div>
         )}
       </main>
@@ -664,7 +769,7 @@ const App: React.FC = () => {
           <div className="glass-panel w-[calc(100vw-2rem)] sm:w-80 max-h-[60vh] rounded-[1.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col animate-in fade-in slide-in-from-bottom-8 duration-300 border-slate-200">
             <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between bg-white/50">
               <h3 className="text-[10px] font-black uppercase tracking-widest ai-title-text premium-font flex items-center gap-2">
-                <History className="w-4 h-4 text-amber-500" /> Logs
+                <History className="w-4 h-4 text-amber-500" /> Session Logs
               </h3>
               <div className="flex gap-2">
                 <button onClick={clearHistory} className="p-1.5 hover:bg-slate-100 text-slate-400 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
@@ -673,7 +778,7 @@ const App: React.FC = () => {
             </div>
             <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 custom-scrollbar">
               {history.length === 0 ? (
-                <p className="text-slate-400 text-xs italic text-center py-12">No logs recorded.</p>
+                <p className="text-slate-400 text-xs italic text-center py-12">No current logs.</p>
               ) : (
                 history.map((item) => (
                   <div key={item.id} className="bg-white p-3 rounded-xl border border-slate-100 hover:border-amber-400 transition-all shadow-sm">
